@@ -4,6 +4,7 @@ import cv2
 import time
 from ultralytics import RTDETR, YOLO
 import supervision as sv
+from PIL import Image
 
 
 class DETRClass:
@@ -22,8 +23,8 @@ class DETRClass:
         self.model1 = YOLO('yolov8n.pt')
         self.model = RTDETR("rtdetr-l.pt")
 
-        self.model.model.names = self.model1.model.names
-
+        # Load the class names from the YOLO model to the DETR model
+        self.model.model.names = self.model1.names
         torch.save(self.model, "rtdetr-l-names.pt")
 
         self.CLASS_NAMES_DICT = self.model.model.names
@@ -31,7 +32,7 @@ class DETRClass:
         print("Classes: ", self.CLASS_NAMES_DICT)
 
         self.box_annotator = sv.BoxAnnotator(
-            sv.ColorPalette.default(), thickness=1, text_thickness=1, text_scale=1
+            thickness=1, text_thickness=1, text_scale=1
         )
 
     def plot_bboxes(self, results, frame):
@@ -56,20 +57,42 @@ class DETRClass:
         return frame
 
     def __call__(self):
+        # After typed, wait a second for detection
+        # Type 0 if using camera
+        path = input("Enter the path of the image or video: \n")
 
-        cap = cv2.VideoCapture('nyc.mp4')
+        # self.detect_image(path)
+        if path.endswith(".jpg") or path.endswith(".png") or path.endswith(".jpeg"):
+            self.detect_image(path)
+        else:
+            if path == '0':
+                self.detect_video(int(path))
+            else:
+                self.detect_video(path)
+
+    def detect_video(self, video_path):
+        # Open the video file or camera stream
+        cap = cv2.VideoCapture(video_path)
+
+        # Check if the video file or camera stream is opened successfully
         assert cap.isOpened()
-        # cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-        # cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 
+        # Set the resolution of the video stream
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+
+        # Loop through the video frames
         while cap.isOpened():
 
+            # Read the video frame
             start_time = time.perf_counter()
 
             setx, frame = cap.read()
 
+            # Predict the bounding boxes
             results = self.model.predict(frame)
 
+            # Plot the bounding boxes on the frame
             frame = self.plot_bboxes(results, frame)
 
             end_time = time.perf_counter()
@@ -82,15 +105,50 @@ class DETRClass:
                 cv2.FONT_HERSHEY_SIMPLEX,
                 1,
                 (0, 255, 0),
-                2,
+                1,
             )
 
+            # Display the frame with the bounding boxes
             cv2.imshow("DETR", frame)
 
             if cv2.waitKey(1) == ord("q"):
                 break
 
         cap.release()
+        cv2.waitKey(0)  # Wait for a key press to close the window
+        cv2.destroyAllWindows()
+
+    def detect_image(self, image_path):
+        image = Image.open(image_path)
+        image.thumbnail((1280, 720))
+        resize_path = "myimage.png"
+        image.save(resize_path, RGBA=True)
+
+        frame = cv2.imread(resize_path)
+
+        assert frame is not None, "Image not found"  # Make sure the image is loaded correctly
+
+        start_time = time.perf_counter()
+
+        results = self.model.predict(frame)
+
+        frame = self.plot_bboxes(results, frame)
+
+        end_time = time.perf_counter()
+        fps = 1 / (end_time - start_time)
+
+        cv2.putText(
+            frame,
+            f"FPS: {fps:.2f}",
+            (20, 70),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            (0, 255, 0),
+            2,
+        )
+
+        cv2.imshow("DETR", frame)
+        cv2.waitKey(0)  # Wait for a key press to close the window
         cv2.destroyAllWindows()
 
 
